@@ -1,0 +1,4 @@
+project_id = "zenkglzogqlueajevroq"
+
+[functions.nexus-explain]
+verify_jwt = false
