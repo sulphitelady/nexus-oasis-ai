@@ -32,7 +32,7 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        input: JSON.stringify(requestData)
+        UserInput: JSON.stringify(requestData)
       }),
     });
 
