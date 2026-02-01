@@ -1,5 +1,4 @@
 import { useState, useCallback, useMemo } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import {
   forecastingAgent,
@@ -19,6 +18,7 @@ interface SimulationState {
   metrics: SustainabilityMetrics | null;
   explanation: string | null;
   isFromCache: boolean;
+  useAiria: boolean;
 }
 
 const defaultParams: SimulationParams = {
@@ -29,10 +29,10 @@ const defaultParams: SimulationParams = {
 };
 
 export function useSimulation() {
-  const queryClient = useQueryClient();
   const [params, setParams] = useState<SimulationParams>(defaultParams);
   const [isSimulating, setIsSimulating] = useState(false);
-  const [results, setResults] = useState<Omit<SimulationState, 'params'>>({
+  const [useAiria, setUseAiria] = useState(true); // Default to using AIRIA
+  const [results, setResults] = useState<Omit<SimulationState, 'params' | 'useAiria'>>({
     forecasts: null,
     recommendations: null,
     metrics: null,
@@ -40,27 +40,131 @@ export function useSimulation() {
     isFromCache: false
   });
 
-  // Run the simulation with all agents
-  const runSimulation = useCallback(async () => {
+  // Run simulation with AIRIA agents
+  const runAiriaSimulation = useCallback(async () => {
     setIsSimulating(true);
 
     try {
-      // Check if forecasts are cached
-      const isFromCache = forecastingAgent.isCached(params);
+      // Agent 1: AIRIA Forecasting
+      console.log('Calling AIRIA forecast agent...');
+      const { data: forecastData, error: forecastError } = await supabase.functions.invoke('airia-forecast', {
+        body: {
+          scenario: params.scenario,
+          temperature: params.temperature,
+          populationGrowth: params.populationGrowth,
+          date: params.date.toISOString()
+        }
+      });
 
-      // Agent 1: Forecasting
-      const forecasts = forecastingAgent.generateForecast(params);
+      if (forecastError) {
+        console.error('AIRIA forecast error:', forecastError);
+        throw forecastError;
+      }
 
-      // Agent 2: Optimization
-      const recommendations = optimizationAgent.generateRecommendations(
+      // Parse forecast results - use local fallback if AIRIA doesn't return expected format
+      let forecasts: ForecastResult[];
+      if (forecastData?.forecasts && Array.isArray(forecastData.forecasts)) {
+        forecasts = forecastData.forecasts;
+      } else if (forecastData?.result) {
+        try {
+          const parsed = typeof forecastData.result === 'string' ? JSON.parse(forecastData.result) : forecastData.result;
+          forecasts = parsed.forecasts || forecastingAgent.generateForecast(params);
+        } catch {
+          forecasts = forecastingAgent.generateForecast(params);
+        }
+      } else {
+        forecasts = forecastingAgent.generateForecast(params);
+      }
+
+      // Agent 2: AIRIA Optimization
+      console.log('Calling AIRIA optimization agent...');
+      const { data: optimizeData, error: optimizeError } = await supabase.functions.invoke('airia-optimize', {
+        body: {
+          forecasts,
+          scenario: params.scenario,
+          temperature: params.temperature
+        }
+      });
+
+      if (optimizeError) {
+        console.error('AIRIA optimization error:', optimizeError);
+      }
+
+      // Parse optimization results
+      let recommendations: OptimizationRecommendation[];
+      if (optimizeData?.recommendations && Array.isArray(optimizeData.recommendations)) {
+        recommendations = optimizeData.recommendations;
+      } else if (optimizeData?.result) {
+        try {
+          const parsed = typeof optimizeData.result === 'string' ? JSON.parse(optimizeData.result) : optimizeData.result;
+          recommendations = parsed.recommendations || optimizationAgent.generateRecommendations(forecasts, params.scenario);
+        } catch {
+          recommendations = optimizationAgent.generateRecommendations(forecasts, params.scenario);
+        }
+      } else {
+        recommendations = optimizationAgent.generateRecommendations(forecasts, params.scenario);
+      }
+
+      // Agent 3: AIRIA Sustainability
+      console.log('Calling AIRIA sustainability agent...');
+      const { data: sustainData, error: sustainError } = await supabase.functions.invoke('airia-sustainability', {
+        body: {
+          forecasts,
+          recommendations,
+          scenario: params.scenario
+        }
+      });
+
+      if (sustainError) {
+        console.error('AIRIA sustainability error:', sustainError);
+      }
+
+      // Parse sustainability results
+      let metrics: SustainabilityMetrics;
+      if (sustainData?.metrics) {
+        metrics = sustainData.metrics;
+      } else if (sustainData?.result) {
+        try {
+          const parsed = typeof sustainData.result === 'string' ? JSON.parse(sustainData.result) : sustainData.result;
+          metrics = parsed.metrics || sustainabilityAgent.calculateMetrics(forecasts, recommendations);
+        } catch {
+          metrics = sustainabilityAgent.calculateMetrics(forecasts, recommendations);
+        }
+      } else {
+        metrics = sustainabilityAgent.calculateMetrics(forecasts, recommendations);
+      }
+
+      // Update results
+      setResults({
         forecasts,
-        params.scenario
-      );
+        recommendations,
+        metrics,
+        explanation: null,
+        isFromCache: false
+      });
 
-      // Agent 3: Sustainability
+      // Agent 4: AIRIA Explainability (async)
+      fetchAiriaExplanation(params, forecasts, recommendations, metrics);
+
+    } catch (error) {
+      console.error('AIRIA simulation error:', error);
+      // Fallback to local agents
+      runLocalSimulation();
+    } finally {
+      setIsSimulating(false);
+    }
+  }, [params]);
+
+  // Run simulation with local agents (fallback)
+  const runLocalSimulation = useCallback(async () => {
+    setIsSimulating(true);
+
+    try {
+      const isFromCache = forecastingAgent.isCached(params);
+      const forecasts = forecastingAgent.generateForecast(params);
+      const recommendations = optimizationAgent.generateRecommendations(forecasts, params.scenario);
       const metrics = sustainabilityAgent.calculateMetrics(forecasts, recommendations);
 
-      // Update results (explanation will be fetched separately)
       setResults({
         forecasts,
         recommendations,
@@ -69,18 +173,73 @@ export function useSimulation() {
         isFromCache
       });
 
-      // Agent 4: Explainability (async, via edge function)
-      fetchExplanation(params, forecasts, recommendations, metrics);
+      // Fetch explanation from local edge function
+      fetchLocalExplanation(params, forecasts, recommendations, metrics);
 
     } catch (error) {
-      console.error('Simulation error:', error);
+      console.error('Local simulation error:', error);
     } finally {
       setIsSimulating(false);
     }
   }, [params]);
 
-  // Fetch AI explanation from edge function
-  const fetchExplanation = async (
+  // Main simulation runner
+  const runSimulation = useCallback(async () => {
+    if (useAiria) {
+      await runAiriaSimulation();
+    } else {
+      await runLocalSimulation();
+    }
+  }, [useAiria, runAiriaSimulation, runLocalSimulation]);
+
+  // Fetch AIRIA explanation
+  const fetchAiriaExplanation = async (
+    simParams: SimulationParams,
+    forecasts: ForecastResult[],
+    recommendations: OptimizationRecommendation[],
+    metrics: SustainabilityMetrics
+  ) => {
+    try {
+      const { data, error } = await supabase.functions.invoke('airia-explain', {
+        body: {
+          scenario: simParams.scenario,
+          temperature: simParams.temperature,
+          populationGrowth: simParams.populationGrowth,
+          forecastSummary: forecastingAgent.getForecastSummary(forecasts),
+          recommendations: recommendations.map(r => ({
+            strategy: optimizationAgent.getStrategyDetails(r.strategyId)?.name || r.strategyId,
+            priority: r.priority,
+            reasoning: r.reasoning,
+            impact: r.expectedImpact
+          })),
+          metrics
+        }
+      });
+
+      if (error) {
+        console.error('AIRIA explanation error:', error);
+        setResults(prev => ({
+          ...prev,
+          explanation: 'Unable to generate AI explanation at this time.'
+        }));
+        return;
+      }
+
+      setResults(prev => ({
+        ...prev,
+        explanation: data?.explanation || 'No explanation available.'
+      }));
+    } catch (error) {
+      console.error('AIRIA explanation fetch error:', error);
+      setResults(prev => ({
+        ...prev,
+        explanation: 'Unable to connect to AIRIA service.'
+      }));
+    }
+  };
+
+  // Fetch local explanation (Lovable AI)
+  const fetchLocalExplanation = async (
     simParams: SimulationParams,
     forecasts: ForecastResult[],
     recommendations: OptimizationRecommendation[],
@@ -104,10 +263,10 @@ export function useSimulation() {
       });
 
       if (error) {
-        console.error('Explanation error:', error);
+        console.error('Local explanation error:', error);
         setResults(prev => ({
           ...prev,
-          explanation: 'Unable to generate AI explanation at this time. Please try again.'
+          explanation: 'Unable to generate AI explanation at this time.'
         }));
         return;
       }
@@ -117,10 +276,10 @@ export function useSimulation() {
         explanation: data?.explanation || 'No explanation available.'
       }));
     } catch (error) {
-      console.error('Explanation fetch error:', error);
+      console.error('Local explanation fetch error:', error);
       setResults(prev => ({
         ...prev,
-        explanation: 'Unable to connect to AI service. The other agents have completed their analysis.'
+        explanation: 'Unable to connect to AI service.'
       }));
     }
   };
@@ -140,6 +299,11 @@ export function useSimulation() {
 
   const updateDate = useCallback((date: Date) => {
     setParams(prev => ({ ...prev, date }));
+  }, []);
+
+  // Toggle AIRIA mode
+  const toggleAiriaMode = useCallback((enabled: boolean) => {
+    setUseAiria(enabled);
   }, []);
 
   // Get forecast summary
@@ -180,6 +344,7 @@ export function useSimulation() {
     isSimulating,
     forecastSummary,
     totalImpact,
+    useAiria,
     
     // Actions
     runSimulation,
@@ -189,6 +354,7 @@ export function useSimulation() {
     updateDate,
     clearCaches,
     resetParams,
-    setParams
+    setParams,
+    toggleAiriaMode
   };
 }

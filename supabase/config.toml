@@ -2,3 +2,15 @@ project_id = "zenkglzogqlueajevroq"
 
 [functions.nexus-explain]
 verify_jwt = false
+
+[functions.airia-forecast]
+verify_jwt = false
+
+[functions.airia-optimize]
+verify_jwt = false
+
+[functions.airia-sustainability]
+verify_jwt = false
+
+[functions.airia-explain]
+verify_jwt = false

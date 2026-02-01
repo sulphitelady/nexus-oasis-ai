@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Slider } from '@/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import {
@@ -40,11 +41,13 @@ export default function Dashboard() {
     isSimulating,
     forecastSummary,
     isFromCache,
+    useAiria,
     runSimulation,
     updateScenario,
     updateTemperature,
     updatePopulationGrowth,
-    resetParams
+    resetParams,
+    toggleAiriaMode
   } = useSimulation();
 
   const scenarioIcons: Record<ScenarioType, typeof Sun> = {
@@ -175,6 +178,25 @@ export default function Dashboard() {
                     <span>0%</span>
                     <span>5%</span>
                   </div>
+                </div>
+
+                <Separator />
+
+                {/* AIRIA Mode Toggle */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium text-foreground">AIRIA Agents</label>
+                    <Switch 
+                      checked={useAiria}
+                      onCheckedChange={toggleAiriaMode}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {useAiria 
+                      ? "Using AIRIA API for all agents" 
+                      : "Using local agents (fallback mode)"
+                    }
+                  </p>
                 </div>
 
                 <Separator />
