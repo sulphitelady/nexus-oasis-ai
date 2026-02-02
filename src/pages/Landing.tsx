@@ -17,6 +17,8 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import { uaeStats } from '@/data/syntheticData';
+import { FAQSection } from '@/components/landing/FAQSection';
+import { AIChatbot } from '@/components/landing/AIChatbot';
 
 export default function Landing() {
   const [howToUseOpen, setHowToUseOpen] = useState(false);
@@ -216,6 +218,9 @@ export default function Landing() {
         </div>
       </section>
 
+      {/* FAQ Section */}
+      <FAQSection />
+
       {/* CTA Section */}
       <section className="py-16 gradient-desert">
         <div className="container mx-auto px-4 text-center">
@@ -243,6 +248,9 @@ export default function Landing() {
           </p>
         </div>
       </footer>
+
+      {/* AI Chatbot */}
+      <AIChatbot />
     </div>
   );
 }
