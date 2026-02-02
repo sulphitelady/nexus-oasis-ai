@@ -248,37 +248,69 @@ export default function Dashboard() {
               // Empty State
               <Card className="py-16">
                 <CardContent className="text-center">
-                  <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-muted flex items-center justify-center">
-                    <Play className="h-8 w-8 text-muted-foreground" />
+                  <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
+                    <Play className="h-10 w-10 text-primary" />
                   </div>
-                  <h3 className="text-xl font-semibold text-foreground mb-2">
-                    Ready to Simulate
+                  <h3 className="text-2xl font-semibold text-foreground mb-3">
+                    Welcome to NEXUS-AI! 👋
                   </h3>
-                  <p className="text-muted-foreground mb-6 max-w-md mx-auto">
-                    Configure your scenario parameters and click "Run Simulation" to generate 
-                    AI-powered forecasts and optimization recommendations.
+                  <p className="text-muted-foreground mb-6 max-w-lg mx-auto">
+                    Ready to optimize the UAE's water-energy nexus? Configure your scenario 
+                    parameters on the left, then click "Run Simulation" to get AI-powered 
+                    forecasts and smart recommendations.
                   </p>
+                  <div className="flex flex-wrap justify-center gap-3 mb-8">
+                    <Badge variant="outline" className="text-sm py-1.5 px-3">
+                      <Brain className="w-4 h-4 mr-1.5" />
+                      4 AI Agents
+                    </Badge>
+                    <Badge variant="outline" className="text-sm py-1.5 px-3">
+                      <Leaf className="w-4 h-4 mr-1.5" />
+                      Sustainability Focus
+                    </Badge>
+                    <Badge variant="outline" className="text-sm py-1.5 px-3">
+                      <Zap className="w-4 h-4 mr-1.5" />
+                      Real-time Analysis
+                    </Badge>
+                  </div>
                   <Button 
                     className="gradient-gold text-primary-foreground shadow-gold"
+                    size="lg"
                     onClick={runSimulation}
                     disabled={isSimulating}
                   >
                     {isSimulating ? (
                       <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Running...
+                        <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                        Analyzing...
                       </>
                     ) : (
                       <>
-                        <Play className="h-4 w-4 mr-2" />
-                        Run First Simulation
+                        <Play className="h-5 w-5 mr-2" />
+                        Run Your First Simulation
                       </>
                     )}
                   </Button>
+                  <p className="text-xs text-muted-foreground mt-4">
+                    ✨ Powered by AIRIA multi-agent system
+                  </p>
                 </CardContent>
               </Card>
             ) : (
               <>
+                {/* Success banner */}
+                <div className="p-4 rounded-lg bg-success/10 border border-success/20 flex items-center gap-3">
+                  <CheckCircle className="h-5 w-5 text-success flex-shrink-0" />
+                  <div>
+                    <p className="text-sm font-medium text-foreground">
+                      Simulation complete! Here are your personalized insights.
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      All 4 AI agents have analyzed your scenario and generated recommendations.
+                    </p>
+                  </div>
+                </div>
+
                 {/* Forecast Chart */}
                 <ForecastChart 
                   forecasts={forecasts} 
@@ -301,6 +333,7 @@ export default function Dashboard() {
                   explanation={explanation}
                   isLoading={!explanation}
                   forecastSummary={forecastSummary}
+                  useAiria={useAiria}
                 />
               </>
             )}
