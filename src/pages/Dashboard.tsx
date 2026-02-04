@@ -22,14 +22,19 @@ import {
   Loader2,
   CheckCircle,
   AlertTriangle,
-  Info
+  Filter
 } from 'lucide-react';
 import { useSimulation } from '@/hooks/useSimulation';
+import { useSavedRecommendations } from '@/hooks/useSavedRecommendations';
 import { scenarioModifiers, type ScenarioType } from '@/data/syntheticData';
 import ForecastChart from '@/components/dashboard/ForecastChart';
 import RecommendationsPanel from '@/components/dashboard/RecommendationsPanel';
 import SustainabilityMetrics from '@/components/dashboard/SustainabilityMetrics';
 import ExplainabilityPanel from '@/components/dashboard/ExplainabilityPanel';
+import SimulationProgress from '@/components/dashboard/SimulationProgress';
+import AlertsPanel from '@/components/dashboard/AlertsPanel';
+import FeedbackSection from '@/components/dashboard/FeedbackSection';
+import DataExportButton from '@/components/dashboard/DataExportButton';
 
 export default function Dashboard() {
   const {
@@ -50,6 +55,15 @@ export default function Dashboard() {
     toggleAiriaMode
   } = useSimulation();
 
+  const {
+    savedItems,
+    implementedItems,
+    toggleSaved,
+    toggleImplemented
+  } = useSavedRecommendations(params.scenario);
+
+  const [priorityFilter, setPriorityFilter] = useState<string>('all');
+
   const scenarioIcons: Record<ScenarioType, typeof Sun> = {
     normal: Sun,
     heatwave: ThermometerSun,
@@ -58,6 +72,12 @@ export default function Dashboard() {
   };
 
   const hasResults = forecasts && recommendations && metrics;
+
+  // Filter recommendations by priority
+  const filteredRecommendations = recommendations?.filter(rec => {
+    if (priorityFilter === 'all') return true;
+    return rec.priority === priorityFilter;
+  }) || [];
 
   return (
     <div className="min-h-screen bg-background">
@@ -84,6 +104,12 @@ export default function Dashboard() {
                 Cached
               </Badge>
             )}
+            <DataExportButton
+              forecasts={forecasts}
+              recommendations={recommendations}
+              metrics={metrics}
+              scenario={params.scenario}
+            />
             <Button 
               variant="outline" 
               size="sm"
@@ -182,6 +208,30 @@ export default function Dashboard() {
 
                 <Separator />
 
+                {/* Priority Filter */}
+                {hasResults && (
+                  <>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-foreground flex items-center gap-2">
+                        <Filter className="h-4 w-4" />
+                        Priority Filter
+                      </label>
+                      <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Priorities</SelectItem>
+                          <SelectItem value="high">High Priority</SelectItem>
+                          <SelectItem value="medium">Medium Priority</SelectItem>
+                          <SelectItem value="low">Low Priority</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Separator />
+                  </>
+                )}
+
                 {/* AIRIA Mode Toggle */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
@@ -222,7 +272,7 @@ export default function Dashboard() {
                 </Button>
 
                 {/* Agent Status */}
-                {hasResults && (
+                {hasResults && !isSimulating && (
                   <div className="space-y-2 pt-2">
                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                       Agent Status
@@ -244,7 +294,15 @@ export default function Dashboard() {
 
           {/* Main Content Area */}
           <main className="lg:col-span-9 space-y-6">
-            {!hasResults ? (
+            {/* Simulation Progress */}
+            {isSimulating && (
+              <SimulationProgress 
+                isSimulating={isSimulating} 
+                useAiria={useAiria} 
+              />
+            )}
+
+            {!hasResults && !isSimulating ? (
               // Empty State
               <Card className="py-16">
                 <CardContent className="text-center">
@@ -296,7 +354,7 @@ export default function Dashboard() {
                   </p>
                 </CardContent>
               </Card>
-            ) : (
+            ) : hasResults ? (
               <>
                 {/* Success banner */}
                 <div className="p-4 rounded-lg bg-success/10 border border-success/20 flex items-center gap-3">
@@ -311,6 +369,13 @@ export default function Dashboard() {
                   </div>
                 </div>
 
+                {/* Alerts Panel */}
+                <AlertsPanel 
+                  forecasts={forecasts}
+                  metrics={metrics}
+                  scenario={params.scenario}
+                />
+
                 {/* Forecast Chart */}
                 <ForecastChart 
                   forecasts={forecasts} 
@@ -321,7 +386,12 @@ export default function Dashboard() {
                 {/* Two Column Layout for Recommendations and Sustainability */}
                 <div className="grid md:grid-cols-2 gap-6">
                   <RecommendationsPanel 
-                    recommendations={recommendations}
+                    recommendations={filteredRecommendations}
+                    scenario={params.scenario}
+                    savedItems={savedItems}
+                    implementedItems={implementedItems}
+                    onSave={(strategyId, impact) => toggleSaved(strategyId, impact)}
+                    onImplement={(strategyId) => toggleImplemented(strategyId)}
                   />
                   <SustainabilityMetrics 
                     metrics={metrics}
@@ -335,8 +405,11 @@ export default function Dashboard() {
                   forecastSummary={forecastSummary}
                   useAiria={useAiria}
                 />
+
+                {/* Feedback Section */}
+                <FeedbackSection context="simulation" />
               </>
-            )}
+            ) : null}
           </main>
         </div>
       </div>
