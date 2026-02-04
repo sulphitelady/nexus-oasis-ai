@@ -14,3 +14,6 @@ verify_jwt = false
 
 [functions.airia-explain]
 verify_jwt = false
+
+[functions.airia-simulate]
+verify_jwt = false
