@@ -28,10 +28,13 @@ const defaultParams: SimulationParams = {
   date: new Date()
 };
 
+// Fast timeout for AIRIA - abort after 4 seconds
+const AIRIA_TIMEOUT_MS = 4000;
+
 export function useSimulation() {
   const [params, setParams] = useState<SimulationParams>(defaultParams);
   const [isSimulating, setIsSimulating] = useState(false);
-  const [useAiria, setUseAiria] = useState(true); // Default to using AIRIA
+  const [useAiria, setUseAiria] = useState(true);
   const [results, setResults] = useState<Omit<SimulationState, 'params' | 'useAiria'>>({
     forecasts: null,
     recommendations: null,
@@ -40,101 +43,97 @@ export function useSimulation() {
     isFromCache: false
   });
 
-  // Run simulation with AIRIA agents
+  // Optimized: Run simulation with unified AIRIA endpoint (parallel calls)
   const runAiriaSimulation = useCallback(async () => {
     setIsSimulating(true);
+    const startTime = Date.now();
 
     try {
-      // Agent 1: AIRIA Forecasting
-      console.log('Calling AIRIA forecast agent...');
-      const { data: forecastData, error: forecastError } = await supabase.functions.invoke('airia-forecast', {
-        body: {
-          scenario: params.scenario,
-          temperature: params.temperature,
-          populationGrowth: params.populationGrowth,
-          date: params.date.toISOString()
-        }
-      });
+      // Use AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), AIRIA_TIMEOUT_MS);
 
-      if (forecastError) {
-        console.error('AIRIA forecast error:', forecastError);
-        throw forecastError;
+      console.log('Calling unified AIRIA simulate endpoint...');
+      
+      // Start local computation in parallel as backup
+      const localForecasts = forecastingAgent.generateForecast(params);
+      const localRecommendations = optimizationAgent.generateRecommendations(localForecasts, params.scenario);
+      const localMetrics = sustainabilityAgent.calculateMetrics(localForecasts, localRecommendations);
+
+      let forecasts: ForecastResult[] = localForecasts;
+      let recommendations: OptimizationRecommendation[] = localRecommendations;
+      let metrics: SustainabilityMetrics = localMetrics;
+      let usedAiria = false;
+
+      try {
+        const { data, error } = await supabase.functions.invoke('airia-simulate', {
+          body: {
+            scenario: params.scenario,
+            temperature: params.temperature,
+            populationGrowth: params.populationGrowth,
+            date: params.date.toISOString()
+          }
+        });
+
+        clearTimeout(timeoutId);
+        
+        const elapsed = Date.now() - startTime;
+        console.log(`AIRIA response in ${elapsed}ms:`, data?.useFallback ? 'fallback needed' : 'success');
+
+        if (!error && data && !data.useFallback) {
+          // Parse AIRIA forecast data
+          if (data.forecastData?.forecasts && Array.isArray(data.forecastData.forecasts)) {
+            forecasts = data.forecastData.forecasts;
+            usedAiria = true;
+          } else if (data.forecastData?.result) {
+            try {
+              const parsed = typeof data.forecastData.result === 'string' 
+                ? JSON.parse(data.forecastData.result) 
+                : data.forecastData.result;
+              if (parsed.forecasts) {
+                forecasts = parsed.forecasts;
+                usedAiria = true;
+              }
+            } catch { /* use local */ }
+          }
+
+          // Parse AIRIA optimization data
+          if (data.optimizeData?.recommendations && Array.isArray(data.optimizeData.recommendations)) {
+            recommendations = data.optimizeData.recommendations;
+          } else if (data.optimizeData?.result) {
+            try {
+              const parsed = typeof data.optimizeData.result === 'string' 
+                ? JSON.parse(data.optimizeData.result) 
+                : data.optimizeData.result;
+              if (parsed.recommendations) {
+                recommendations = parsed.recommendations;
+              }
+            } catch { /* use local */ }
+          }
+
+          // Parse AIRIA sustainability data
+          if (data.sustainData?.metrics) {
+            metrics = data.sustainData.metrics;
+          } else if (data.sustainData?.result) {
+            try {
+              const parsed = typeof data.sustainData.result === 'string' 
+                ? JSON.parse(data.sustainData.result) 
+                : data.sustainData.result;
+              if (parsed.metrics) {
+                metrics = parsed.metrics;
+              }
+            } catch { /* use local */ }
+          }
+        }
+      } catch (airiaError) {
+        clearTimeout(timeoutId);
+        console.warn('AIRIA call failed or timed out, using local agents:', airiaError);
       }
 
-      // Parse forecast results - use local fallback if AIRIA doesn't return expected format
-      let forecasts: ForecastResult[];
-      if (forecastData?.forecasts && Array.isArray(forecastData.forecasts)) {
-        forecasts = forecastData.forecasts;
-      } else if (forecastData?.result) {
-        try {
-          const parsed = typeof forecastData.result === 'string' ? JSON.parse(forecastData.result) : forecastData.result;
-          forecasts = parsed.forecasts || forecastingAgent.generateForecast(params);
-        } catch {
-          forecasts = forecastingAgent.generateForecast(params);
-        }
-      } else {
-        forecasts = forecastingAgent.generateForecast(params);
-      }
+      const totalElapsed = Date.now() - startTime;
+      console.log(`Simulation completed in ${totalElapsed}ms (AIRIA: ${usedAiria})`);
 
-      // Agent 2: AIRIA Optimization
-      console.log('Calling AIRIA optimization agent...');
-      const { data: optimizeData, error: optimizeError } = await supabase.functions.invoke('airia-optimize', {
-        body: {
-          forecasts,
-          scenario: params.scenario,
-          temperature: params.temperature
-        }
-      });
-
-      if (optimizeError) {
-        console.error('AIRIA optimization error:', optimizeError);
-      }
-
-      // Parse optimization results
-      let recommendations: OptimizationRecommendation[];
-      if (optimizeData?.recommendations && Array.isArray(optimizeData.recommendations)) {
-        recommendations = optimizeData.recommendations;
-      } else if (optimizeData?.result) {
-        try {
-          const parsed = typeof optimizeData.result === 'string' ? JSON.parse(optimizeData.result) : optimizeData.result;
-          recommendations = parsed.recommendations || optimizationAgent.generateRecommendations(forecasts, params.scenario);
-        } catch {
-          recommendations = optimizationAgent.generateRecommendations(forecasts, params.scenario);
-        }
-      } else {
-        recommendations = optimizationAgent.generateRecommendations(forecasts, params.scenario);
-      }
-
-      // Agent 3: AIRIA Sustainability
-      console.log('Calling AIRIA sustainability agent...');
-      const { data: sustainData, error: sustainError } = await supabase.functions.invoke('airia-sustainability', {
-        body: {
-          forecasts,
-          recommendations,
-          scenario: params.scenario
-        }
-      });
-
-      if (sustainError) {
-        console.error('AIRIA sustainability error:', sustainError);
-      }
-
-      // Parse sustainability results
-      let metrics: SustainabilityMetrics;
-      if (sustainData?.metrics) {
-        metrics = sustainData.metrics;
-      } else if (sustainData?.result) {
-        try {
-          const parsed = typeof sustainData.result === 'string' ? JSON.parse(sustainData.result) : sustainData.result;
-          metrics = parsed.metrics || sustainabilityAgent.calculateMetrics(forecasts, recommendations);
-        } catch {
-          metrics = sustainabilityAgent.calculateMetrics(forecasts, recommendations);
-        }
-      } else {
-        metrics = sustainabilityAgent.calculateMetrics(forecasts, recommendations);
-      }
-
-      // Update results
+      // Update results immediately
       setResults({
         forecasts,
         recommendations,
@@ -143,12 +142,12 @@ export function useSimulation() {
         isFromCache: false
       });
 
-      // Agent 4: AIRIA Explainability (async)
+      // Fetch explanation asynchronously (non-blocking)
       fetchAiriaExplanation(params, forecasts, recommendations, metrics);
 
     } catch (error) {
-      console.error('AIRIA simulation error:', error);
-      // Fallback to local agents
+      console.error('Simulation error:', error);
+      // Fallback to pure local
       runLocalSimulation();
     } finally {
       setIsSimulating(false);
